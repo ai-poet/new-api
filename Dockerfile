@@ -1,11 +1,10 @@
-FROM node:16 AS builder
+FROM node:18 AS builder
 
 WORKDIR /build
 COPY web/package.json .
 RUN npm install
 COPY ./web .
 COPY ./VERSION .
-RUN apt-get install -y openssl git
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) npm run build
 
 FROM golang AS builder2
