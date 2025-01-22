@@ -1,10 +1,11 @@
-FROM node:18-alpine AS builder
+FROM node:16 AS builder
 
 WORKDIR /build
 COPY web/package.json .
 RUN npm install
 COPY ./web .
 COPY ./VERSION .
+RUN apk add --no-cache openssl
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) npm run build
 
 FROM golang AS builder2
