@@ -10,8 +10,10 @@ import (
 	"one-api/model"
 	relayconstant "one-api/relay/constant"
 	"one-api/service"
+	"one-api/setting"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -38,16 +40,16 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, "Invalid request, "+err.Error())
 			return
 		}
-		userGroup, _ := model.CacheGetUserGroup(userId)
+		userGroup, _ := model.GetUserGroup(userId, false)
 		tokenGroup := c.GetString("token_group")
 		if tokenGroup != "" {
 			// check common.UserUsableGroups[userGroup]
-			if _, ok := common.UserUsableGroups[tokenGroup]; !ok {
+			if _, ok := setting.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
 				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("令牌分组 %s 已被禁用", tokenGroup))
 				return
 			}
 			// check group in common.GroupRatio
-			if _, ok := common.GroupRatio[tokenGroup]; !ok {
+			if !setting.ContainsGroupRatio(tokenGroup) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", tokenGroup))
 				return
 			}
@@ -112,6 +114,7 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
+		c.Set(constant.ContextKeyRequestStartTime, time.Now())
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 	}
@@ -170,6 +173,10 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		abortWithOpenAiMessage(c, http.StatusBadRequest, "无效的请求, "+err.Error())
 		return nil, false, errors.New("无效的请求, " + err.Error())
 	}
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/realtime") {
+		//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
+		modelRequest.Model = c.Query("model")
+	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/moderations") {
 		if modelRequest.Model == "" {
 			modelRequest.Model = "text-moderation-stable"
@@ -209,6 +216,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	c.Set("channel_id", channel.Id)
 	c.Set("channel_name", channel.Name)
 	c.Set("channel_type", channel.Type)
+	c.Set("channel_setting", channel.GetSetting())
 	if nil != channel.OpenAIOrganization && "" != *channel.OpenAIOrganization {
 		c.Set("channel_organization", *channel.OpenAIOrganization)
 	}

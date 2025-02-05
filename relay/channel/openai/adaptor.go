@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"one-api/common"
+	constant2 "one-api/constant"
 	"one-api/dto"
 	"one-api/relay/channel"
 	"one-api/relay/channel/ai360"
@@ -31,17 +32,34 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayMode == constant.RelayModeRealtime {
+		if strings.HasPrefix(info.BaseUrl, "https://") {
+			baseUrl := strings.TrimPrefix(info.BaseUrl, "https://")
+			baseUrl = "wss://" + baseUrl
+			info.BaseUrl = baseUrl
+		} else if strings.HasPrefix(info.BaseUrl, "http://") {
+			baseUrl := strings.TrimPrefix(info.BaseUrl, "http://")
+			baseUrl = "ws://" + baseUrl
+			info.BaseUrl = baseUrl
+		}
+	}
 	switch info.ChannelType {
 	case common.ChannelTypeAzure:
+		apiVersion := info.ApiVersion
+		if apiVersion == "" {
+			apiVersion = constant2.AzureDefaultAPIVersion
+		}
 		// https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?pivots=rest-api&tabs=command-line#rest-api
 		requestURL := strings.Split(info.RequestURLPath, "?")[0]
-		requestURL = fmt.Sprintf("%s?api-version=%s", requestURL, info.ApiVersion)
+		requestURL = fmt.Sprintf("%s?api-version=%s", requestURL, apiVersion)
 		task := strings.TrimPrefix(requestURL, "/v1/")
 		model_ := info.UpstreamModelName
 		model_ = strings.Replace(model_, ".", "", -1)
 		// https://github.com/songquanpeng/one-api/issues/67
-
 		requestURL = fmt.Sprintf("/openai/deployments/%s/%s", model_, task)
+		if info.RelayMode == constant.RelayModeRealtime {
+			requestURL = fmt.Sprintf("/openai/realtime?deployment=%s&api-version=%s", model_, apiVersion)
+		}
 		return relaycommon.GetFullRequestURL(info.BaseUrl, requestURL, info.ChannelType), nil
 	case common.ChannelTypeMiniMax:
 		return minimax.GetRequestURL(info)
@@ -54,16 +72,34 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	}
 }
 
-func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
-	channel.SetupApiRequestHeader(info, c, req)
+func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *relaycommon.RelayInfo) error {
+	channel.SetupApiRequestHeader(info, c, header)
 	if info.ChannelType == common.ChannelTypeAzure {
-		req.Header.Set("api-key", info.ApiKey)
+		header.Set("api-key", info.ApiKey)
 		return nil
 	}
 	if info.ChannelType == common.ChannelTypeOpenAI && "" != info.Organization {
-		req.Header.Set("OpenAI-Organization", info.Organization)
+		header.Set("OpenAI-Organization", info.Organization)
 	}
-	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	if info.RelayMode == constant.RelayModeRealtime {
+		swp := c.Request.Header.Get("Sec-WebSocket-Protocol")
+		if swp != "" {
+			items := []string{
+				"realtime",
+				"openai-insecure-api-key." + info.ApiKey,
+				"openai-beta.realtime-v1",
+			}
+			header.Set("Sec-WebSocket-Protocol", strings.Join(items, ","))
+			//req.Header.Set("Sec-WebSocket-Key", c.Request.Header.Get("Sec-WebSocket-Key"))
+			//req.Header.Set("Sec-Websocket-Extensions", c.Request.Header.Get("Sec-Websocket-Extensions"))
+			//req.Header.Set("Sec-Websocket-Version", c.Request.Header.Get("Sec-Websocket-Version"))
+		} else {
+			header.Set("openai-beta", "realtime=v1")
+			header.Set("Authorization", "Bearer "+info.ApiKey)
+		}
+	} else {
+		header.Set("Authorization", "Bearer "+info.ApiKey)
+	}
 	//if info.ChannelType == common.ChannelTypeOpenRouter {
 	//	req.Header.Set("HTTP-Referer", "https://github.com/songquanpeng/one-api")
 	//	req.Header.Set("X-Title", "One API")
@@ -75,15 +111,37 @@ func (a *Adaptor) ConvertRequest(c *gin.Context, info *relaycommon.RelayInfo, re
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	if info.ChannelType != common.ChannelTypeOpenAI {
+	if info.ChannelType != common.ChannelTypeOpenAI && info.ChannelType != common.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}
-	if strings.HasPrefix(request.Model, "o1-") {
+	if strings.HasPrefix(request.Model, "o1") || strings.HasPrefix(request.Model, "o3") {
 		if request.MaxCompletionTokens == 0 && request.MaxTokens != 0 {
 			request.MaxCompletionTokens = request.MaxTokens
 			request.MaxTokens = 0
 		}
+		if strings.HasPrefix(request.Model, "o3") {
+			request.Temperature = nil
+		}
+		if strings.HasSuffix(request.Model, "-high") {
+			request.ReasoningEffort = "high"
+			request.Model = strings.TrimSuffix(request.Model, "-high")
+		} else if strings.HasSuffix(request.Model, "-low") {
+			request.ReasoningEffort = "low"
+			request.Model = strings.TrimSuffix(request.Model, "-low")
+		} else if strings.HasSuffix(request.Model, "-medium") {
+			request.ReasoningEffort = "medium"
+			request.Model = strings.TrimSuffix(request.Model, "-medium")
+		}
+		info.ReasoningEffort = request.ReasoningEffort
+		info.UpstreamModelName = request.Model
 	}
+	if request.Model == "o1" || request.Model == "o1-2024-12-17" || strings.HasPrefix(request.Model, "o3") {
+		//修改第一个Message的内容，将system改为developer
+		if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
+			request.Messages[0].Role = "developer"
+		}
+	}
+
 	return request, nil
 }
 
@@ -104,6 +162,19 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		writer := multipart.NewWriter(&requestBody)
 
 		writer.WriteField("model", request.Model)
+
+		// 获取所有表单字段
+		formData := c.Request.PostForm
+
+		// 遍历表单字段并打印输出
+		for key, values := range formData {
+			if key == "model" {
+				continue
+			}
+			for _, value := range values {
+				writer.WriteField(key, value)
+			}
+		}
 
 		// 添加文件字段
 		file, header, err := c.Request.FormFile("file")
@@ -131,16 +202,20 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	return request, nil
 }
 
-func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	if info.RelayMode == constant.RelayModeAudioTranscription || info.RelayMode == constant.RelayModeAudioTranslation {
 		return channel.DoFormRequest(a, c, info, requestBody)
+	} else if info.RelayMode == constant.RelayModeRealtime {
+		return channel.DoWssRequest(a, c, info, requestBody)
 	} else {
 		return channel.DoApiRequest(a, c, info, requestBody)
 	}
 }
 
-func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage *dto.Usage, err *dto.OpenAIErrorWithStatusCode) {
+func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *dto.OpenAIErrorWithStatusCode) {
 	switch info.RelayMode {
+	case constant.RelayModeRealtime:
+		err, usage = OpenaiRealtimeHandler(c, info)
 	case constant.RelayModeAudioSpeech:
 		err, usage = OpenaiTTSHandler(c, resp, info)
 	case constant.RelayModeAudioTranslation:

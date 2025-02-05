@@ -9,8 +9,8 @@ dependencies:
     specifier: ^2.63.1
     version: 2.66.1(react@18.2.0)
   '@douyinfe/semi-ui':
-    specifier: ^2.63.1
-    version: 2.66.1(react-dom@18.2.0)(react@18.2.0)
+    specifier: ^2.69.1
+    version: 2.72.0(react-dom@18.2.0)(react@18.2.0)
   '@visactor/react-vchart':
     specifier: ~1.8.8
     version: 1.8.11(react-dom@18.2.0)(react@18.2.0)
@@ -29,6 +29,12 @@ dependencies:
   history:
     specifier: ^5.3.0
     version: 5.3.0
+  i18next:
+    specifier: ^23.16.8
+    version: 23.16.8
+  i18next-browser-languagedetector:
+    specifier: ^7.2.0
+    version: 7.2.2
   marked:
     specifier: ^4.1.1
     version: 4.3.0
@@ -44,6 +50,9 @@ dependencies:
   react-fireworks:
     specifier: ^1.0.4
     version: 1.0.4
+  react-i18next:
+    specifier: ^13.0.0
+    version: 13.5.0(i18next@23.16.8)(react-dom@18.2.0)(react@18.2.0)
   react-router-dom:
     specifier: ^6.3.0
     version: 6.22.2(react-dom@18.2.0)(react@18.2.0)
@@ -363,28 +372,29 @@ packages:
       tslib: 2.6.2
     dev: false
 
-  /@douyinfe/semi-animation-react@2.66.1:
-    resolution: {integrity: sha512-3QNVmOIzLGeQY0jlfrrrdQGmhMjUjF4yizufCpIKvNUzchfOOey62zioA39w16IjV7Mi2gxWr2/QCM+3ak/Orw==}
+  /@douyinfe/semi-animation-react@2.72.0:
+    resolution: {integrity: sha512-uBY0fHEmNCbwyEdu/7quWfqQDMPa2aZz+TF/3U06R96caajUihjYy9drDkor1U3tTWLEKEeM6X0BR/QcqcP4mg==}
     dependencies:
-      '@douyinfe/semi-animation': 2.66.1
-      '@douyinfe/semi-animation-styled': 2.66.1
+      '@douyinfe/semi-animation': 2.72.0
+      '@douyinfe/semi-animation-styled': 2.72.0
       classnames: 2.5.1
     dev: false
 
-  /@douyinfe/semi-animation-styled@2.66.1:
-    resolution: {integrity: sha512-HHtAd2bdx5myiz7jKChEjXlLoTT2+Sh0Xi9M7ZCRyzGtE/tZx77s9h5srHoxyx1bbFzAffHe0e387jcdQFpZXQ==}
+  /@douyinfe/semi-animation-styled@2.72.0:
+    resolution: {integrity: sha512-zJba1jtUdlTXo1/GAAv4ImGfllT04CRH0wOT876a408lVXHauJjrGJby0ESbkMKaFTAdNYh76fJ+sp+qLOweXQ==}
     dev: false
 
-  /@douyinfe/semi-animation@2.66.1:
-    resolution: {integrity: sha512-lbl4rKb8aCvf/xL4mntBYEfd7eBTSXgqSKIQWbyFBvdRsb4NpMxue1HoQhyT5QiFWHgaMcI7OjbzlCOgfBAGKg==}
+  /@douyinfe/semi-animation@2.72.0:
+    resolution: {integrity: sha512-6K0YUysNA20akUWwzUdeED4XQXU2iD0gJdmnW44ZwbKGv5thKo38bQ0YYPcmjsk60EtlmQy8xSfnTNoRCq/FBg==}
     dependencies:
       bezier-easing: 2.1.0
     dev: false
 
-  /@douyinfe/semi-foundation@2.66.1:
-    resolution: {integrity: sha512-1XmEFy6qCanJDuQIGFvfRMSs23RTUgQKNuGnZgjdMUg9i48e6CilBRyAJJ145h0hFUxFuUkA6znPjT+x4SHPuA==}
+  /@douyinfe/semi-foundation@2.72.0:
+    resolution: {integrity: sha512-2Z+cdPYGRwCY+eCsptq5UCPQZ9ltIWcY7lpe5rudDIBI8Z2GprXvpmMG2HbdpqCz047AMvI+g/x9xzhHi5FR+A==}
     dependencies:
-      '@douyinfe/semi-animation': 2.66.1
+      '@douyinfe/semi-animation': 2.72.0
+      '@douyinfe/semi-json-viewer-core': 2.72.0
       '@mdx-js/mdx': 3.0.1
       async-validator: 3.5.2
       classnames: 2.5.1
@@ -410,20 +420,35 @@ packages:
       react: 18.2.0
     dev: false
 
-  /@douyinfe/semi-illustrations@2.66.1(react@18.2.0):
-    resolution: {integrity: sha512-Oc2rRZ+t05eptkxtKXY2GkcTlJNkEfgRABuoVjOWbarbntokn+6bJi3HHKg7OuSUpjuz4PNqhGWSDcHnDjFO2A==}
+  /@douyinfe/semi-icons@2.72.0(react@18.2.0):
+    resolution: {integrity: sha512-MsQ7NO6MljJ0LZNGD7pJqEnf9GnDYNPOd9zwn/7T232PH5tZzSdwVjvUVueWSDy7Bx3UHBp5aG6NWOfPIFL4Hw==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0
+    dependencies:
+      classnames: 2.5.1
+      react: 18.2.0
+    dev: false
+
+  /@douyinfe/semi-illustrations@2.72.0(react@18.2.0):
+    resolution: {integrity: sha512-8Pr/ms2IRE6FXei8UWQhDJ6oDPWSC/7naDV80ESZUe316N60J1gQFEm64XtZIWzL0QCQSNz9wdl9GRpJL05s/A==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
     dependencies:
       react: 18.2.0
     dev: false
 
-  /@douyinfe/semi-theme-default@2.61.0:
-    resolution: {integrity: sha512-obn/DOw4vZyKFAlWvZxHTpBLAK9FO9kygTSm2GROgvi+UDB2PPU6l20cuUCsdGUNWJRSqYlTTVZ1tNYIyFZ5Sg==}
+  /@douyinfe/semi-json-viewer-core@2.72.0:
+    resolution: {integrity: sha512-A7mJXKu1pz/iFbXLcWTPmnvl5J+Yj9UZYR/NNx9UczqvCmYaUz9px+Aa9ynKsdsWhSD1B4xWbp8x6A4FlBJCAA==}
+    dependencies:
+      jsonc-parser: 3.3.1
     dev: false
 
-  /@douyinfe/semi-ui@2.66.1(react-dom@18.2.0)(react@18.2.0):
-    resolution: {integrity: sha512-5w5F1Q8pdhxU/XCJFIu9VVQk7kQeHQC83RaUNIpFK6oQ0smDmtJGPOO4x1RVtDzoXgmv6cbEokJd6h4pbe7j5A==}
+  /@douyinfe/semi-theme-default@2.72.0:
+    resolution: {integrity: sha512-l8SOMqiaDFkZKgRmRKe7bTADprVQc5VsJIAbu14qSoo8pdQvJMPnRgeCsTRkTzLTw8YU1IpGeD6514dZP6qlvA==}
+    dev: false
+
+  /@douyinfe/semi-ui@2.72.0(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-njJGvNKggioy9ouZRcIRzrpNAJq9FrKe0100QcK/3ygITY1eE5TcUOCuZAKvMtzyo2ieaypN1EgutaeIofEXLA==}
     peerDependencies:
       react: '>=16.0.0'
       react-dom: '>=16.0.0'
@@ -431,18 +456,19 @@ packages:
       '@dnd-kit/core': 6.1.0(react-dom@18.2.0)(react@18.2.0)
       '@dnd-kit/sortable': 7.0.2(@dnd-kit/core@6.1.0)(react@18.2.0)
       '@dnd-kit/utilities': 3.2.2(react@18.2.0)
-      '@douyinfe/semi-animation': 2.66.1
-      '@douyinfe/semi-animation-react': 2.66.1
-      '@douyinfe/semi-foundation': 2.66.1
-      '@douyinfe/semi-icons': 2.66.1(react@18.2.0)
-      '@douyinfe/semi-illustrations': 2.66.1(react@18.2.0)
-      '@douyinfe/semi-theme-default': 2.61.0
+      '@douyinfe/semi-animation': 2.72.0
+      '@douyinfe/semi-animation-react': 2.72.0
+      '@douyinfe/semi-foundation': 2.72.0
+      '@douyinfe/semi-icons': 2.72.0(react@18.2.0)
+      '@douyinfe/semi-illustrations': 2.72.0(react@18.2.0)
+      '@douyinfe/semi-theme-default': 2.72.0
       async-validator: 3.5.2
       classnames: 2.5.1
       copy-text-to-clipboard: 2.2.0
       date-fns: 2.30.0
       date-fns-tz: 1.3.8(date-fns@2.30.0)
       fast-copy: 3.0.1
+      jsonc-parser: 3.3.1
       lodash: 4.17.21
       prop-types: 15.8.1
       react: 18.2.0
@@ -1984,6 +2010,24 @@ packages:
       '@babel/runtime': 7.24.0
     dev: false
 
+  /html-parse-stringify@3.0.1:
+    resolution: {integrity: sha512-KknJ50kTInJ7qIScF3jeaFRpMpE8/lfiTdzf/twXyPBLAGrLRTmkz3AdTnKeh40X8k9L2fdYwEp/42WGXIRGcg==}
+    dependencies:
+      void-elements: 3.1.0
+    dev: false
+
+  /i18next-browser-languagedetector@7.2.2:
+    resolution: {integrity: sha512-6b7r75uIJDWCcCflmbof+sJ94k9UQO4X0YR62oUfqGI/GjCLVzlCwu8TFdRZIqVLzWbzNcmkmhfqKEr4TLz4HQ==}
+    dependencies:
+      '@babel/runtime': 7.24.0
+    dev: false
+
+  /i18next@23.16.8:
+    resolution: {integrity: sha512-06r/TitrM88Mg5FdUXAKL96dJMzgqLE5dv3ryBAra4KCwD9mJ4ndOTS95ZuymIGoE+2hzfdaMak2X11/es7ZWg==}
+    dependencies:
+      '@babel/runtime': 7.24.0
+    dev: false
+
   /iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
     engines: {node: '>=0.10.0'}
@@ -2082,6 +2126,10 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
     dev: true
+
+  /jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
+    dev: false
 
   /jsonfile@4.0.0:
     resolution: {integrity: sha512-m6F1R3z8jjlf2imQHS2Qez5sjKWQzbuuhuJ/FKYFRZvPE3PuHcSMVZzfsLhGVOkfd20obL5SWEBew5ShlquNxg==}
@@ -2957,6 +3005,26 @@ packages:
     resolution: {integrity: sha512-jj1a+HTicB4pR6g2lqhVyAox0GTE0TOrZK2XaJFRYOwltgQWeYErZxnvU9+zH/blY+Hpmu9IKyb39OD3KcCMJw==}
     dev: false
 
+  /react-i18next@13.5.0(i18next@23.16.8)(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-CFJ5NDGJ2MUyBohEHxljOq/39NQ972rh1ajnadG9BjTk+UXbHLq4z5DKEbEQBDoIhUmmbuS/fIMJKo6VOax1HA==}
+    peerDependencies:
+      i18next: '>= 23.2.3'
+      react: '>= 16.8.0'
+      react-dom: '*'
+      react-native: '*'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+    dependencies:
+      '@babel/runtime': 7.24.0
+      html-parse-stringify: 3.0.1
+      i18next: 23.16.8
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    dev: false
+
   /react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
     dev: false
@@ -3536,6 +3604,11 @@ packages:
     optionalDependencies:
       fsevents: 2.3.3
     dev: true
+
+  /void-elements@3.1.0:
+    resolution: {integrity: sha512-Dhxzh5HZuiHQhbvTW9AMetFfBHDMYpo23Uo9btPXgdYP+3T5S+p+jgNy7spra+veYhBP2dCSgxR/i2Y02h5/6w==}
+    engines: {node: '>=0.10.0'}
+    dev: false
 
   /warning@4.0.3:
     resolution: {integrity: sha512-rpJyN222KWIvHJ/F53XSZv0Zl/accqHR8et1kpaMTD/fLCRxtV8iX8czMzY7sVZupTI3zcUTg8eycS2kNF9l6w==}

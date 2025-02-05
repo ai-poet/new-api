@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net/http"
@@ -38,49 +39,13 @@ func relayHandler(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode 
 	return err
 }
 
-func Playground(c *gin.Context) {
-	var openaiErr *dto.OpenAIErrorWithStatusCode
-
-	defer func() {
-		if openaiErr != nil {
-			c.JSON(openaiErr.StatusCode, gin.H{
-				"error": openaiErr.Error,
-			})
-		}
-	}()
-
-	useAccessToken := c.GetBool("use_access_token")
-	if useAccessToken {
-		openaiErr = service.OpenAIErrorWrapperLocal(errors.New("暂不支持使用 access token"), "access_token_not_supported", http.StatusBadRequest)
-		return
+func wsHandler(c *gin.Context, ws *websocket.Conn, relayMode int) *dto.OpenAIErrorWithStatusCode {
+	var err *dto.OpenAIErrorWithStatusCode
+	switch relayMode {
+	default:
+		err = relay.TextHelper(c)
 	}
-
-	playgroundRequest := &dto.PlayGroundRequest{}
-	err := common.UnmarshalBodyReusable(c, playgroundRequest)
-	if err != nil {
-		openaiErr = service.OpenAIErrorWrapperLocal(err, "unmarshal_request_failed", http.StatusBadRequest)
-		return
-	}
-
-	if playgroundRequest.Model == "" {
-		openaiErr = service.OpenAIErrorWrapperLocal(errors.New("请选择模型"), "model_required", http.StatusBadRequest)
-		return
-	}
-	c.Set("original_model", playgroundRequest.Model)
-	group := playgroundRequest.Group
-	if group == "" {
-		group = c.GetString("group")
-	} else {
-		c.Set("group", group)
-	}
-	channel, err := model.CacheGetRandomSatisfiedChannel(group, playgroundRequest.Model, 0)
-	if err != nil {
-		message := fmt.Sprintf("当前分组 %s 下对于模型 %s 无可用渠道", group, playgroundRequest.Model)
-		openaiErr = service.OpenAIErrorWrapperLocal(errors.New(message), "get_playground_channel_failed", http.StatusInternalServerError)
-		return
-	}
-	middleware.SetupContextForSelectedChannel(c, channel, playgroundRequest.Model)
-	Relay(c)
+	return err
 }
 
 func Relay(c *gin.Context) {
@@ -127,11 +92,79 @@ func Relay(c *gin.Context) {
 	}
 }
 
+var upgrader = websocket.Upgrader{
+	Subprotocols: []string{"realtime"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol TODO add other protocol
+	CheckOrigin: func(r *http.Request) bool {
+		return true // 允许跨域
+	},
+}
+
+func WssRelay(c *gin.Context) {
+	// 将 HTTP 连接升级为 WebSocket 连接
+
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	defer ws.Close()
+
+	if err != nil {
+		openaiErr := service.OpenAIErrorWrapper(err, "get_channel_failed", http.StatusInternalServerError)
+		service.WssError(c, ws, openaiErr.Error)
+		return
+	}
+
+	relayMode := constant.Path2RelayMode(c.Request.URL.Path)
+	requestId := c.GetString(common.RequestIdKey)
+	group := c.GetString("group")
+	//wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01
+	originalModel := c.GetString("original_model")
+	var openaiErr *dto.OpenAIErrorWithStatusCode
+
+	for i := 0; i <= common.RetryTimes; i++ {
+		channel, err := getChannel(c, group, originalModel, i)
+		if err != nil {
+			common.LogError(c, err.Error())
+			openaiErr = service.OpenAIErrorWrapperLocal(err, "get_channel_failed", http.StatusInternalServerError)
+			break
+		}
+
+		openaiErr = wssRequest(c, ws, relayMode, channel)
+
+		if openaiErr == nil {
+			return // 成功处理请求，直接返回
+		}
+
+		go processChannelError(c, channel.Id, channel.Type, channel.Name, channel.GetAutoBan(), openaiErr)
+
+		if !shouldRetry(c, openaiErr, common.RetryTimes-i) {
+			break
+		}
+	}
+	useChannel := c.GetStringSlice("use_channel")
+	if len(useChannel) > 1 {
+		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
+		common.LogInfo(c, retryLogStr)
+	}
+
+	if openaiErr != nil {
+		if openaiErr.StatusCode == http.StatusTooManyRequests {
+			openaiErr.Error.Message = "当前分组上游负载已饱和，请稍后再试"
+		}
+		openaiErr.Error.Message = common.MessageWithRequestId(openaiErr.Error.Message, requestId)
+		service.WssError(c, ws, openaiErr.Error)
+	}
+}
+
 func relayRequest(c *gin.Context, relayMode int, channel *model.Channel) *dto.OpenAIErrorWithStatusCode {
 	addUsedChannel(c, channel.Id)
 	requestBody, _ := common.GetRequestBody(c)
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 	return relayHandler(c, relayMode)
+}
+
+func wssRequest(c *gin.Context, ws *websocket.Conn, relayMode int, channel *model.Channel) *dto.OpenAIErrorWithStatusCode {
+	addUsedChannel(c, channel.Id)
+	requestBody, _ := common.GetRequestBody(c)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+	return relay.WssHelper(c, ws)
 }
 
 func addUsedChannel(c *gin.Context, channelId int) {

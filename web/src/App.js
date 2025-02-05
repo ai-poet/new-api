@@ -10,7 +10,6 @@ import Setting from './pages/Setting';
 import EditUser from './pages/User/EditUser';
 import { getLogo, getSystemName } from './helpers';
 import PasswordResetForm from './components/PasswordResetForm';
-import GitHubOAuth from './components/GitHubOAuth';
 import PasswordResetConfirm from './components/PasswordResetConfirm';
 import { UserContext } from './context/User';
 import Channel from './pages/Channel';
@@ -25,39 +24,18 @@ import { Layout } from '@douyinfe/semi-ui';
 import Midjourney from './pages/Midjourney';
 import Pricing from './pages/Pricing/index.js';
 import Task from "./pages/Task/index.js";
-import Playground from './components/Playground.js';
+import Playground from './pages/Playground/Playground.js';
+import OAuth2Callback from "./components/OAuth2Callback.js";
+import { useTranslation } from 'react-i18next';
+import { StatusContext } from './context/Status';
+import { setStatusData } from './helpers/data.js';
+import { API, showError } from './helpers';
 
 const Home = lazy(() => import('./pages/Home'));
 const Detail = lazy(() => import('./pages/Detail'));
 const About = lazy(() => import('./pages/About'));
 
 function App() {
-  const [userState, userDispatch] = useContext(UserContext);
-  // const [statusState, statusDispatch] = useContext(StatusContext);
-
-  const loadUser = () => {
-    let user = localStorage.getItem('user');
-    if (user) {
-      let data = JSON.parse(user);
-      userDispatch({ type: 'login', payload: data });
-    }
-  };
-
-  useEffect(() => {
-    loadUser();
-    let systemName = getSystemName();
-    if (systemName) {
-      document.title = systemName;
-    }
-    let logo = getLogo();
-    if (logo) {
-      let linkElement = document.querySelector("link[rel~='icon']");
-      if (linkElement) {
-        linkElement.href = logo;
-      }
-    }
-  }, []);
-
   return (
     <>
       <Routes>
@@ -177,7 +155,15 @@ function App() {
           path='/oauth/github'
           element={
             <Suspense fallback={<Loading></Loading>}>
-              <GitHubOAuth />
+              <OAuth2Callback type='github'></OAuth2Callback>
+            </Suspense>
+          }
+        />
+        <Route
+          path='/oauth/linuxdo'
+          element={
+            <Suspense fallback={<Loading></Loading>}>
+                <OAuth2Callback type='linuxdo'></OAuth2Callback>
             </Suspense>
           }
         />
@@ -256,7 +242,7 @@ function App() {
           }
         />
         <Route
-          path='/chat'
+          path='/chat/:id?'
           element={
             <Suspense fallback={<Loading></Loading>}>
               <Chat />
