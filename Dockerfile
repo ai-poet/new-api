@@ -18,7 +18,9 @@ ADD go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=builder /build/dist ./web/dist
-RUN go build -ldflags "-s -w -X 'one-api/common.Version=$(cat VERSION)' -extldflags '-static'" -o one-api
+RUN CGO_ENABLED=1 go build -tags sqlite_foreign_keys \
+    -ldflags "-s -w -X 'one-api/common.Version=$(cat VERSION)' -extldflags '-static'" \
+    -o one-api
 
 FROM alpine
 
