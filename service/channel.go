@@ -12,16 +12,16 @@ import (
 // disable & notify
 func DisableChannel(channelId int, channelName string, reason string) {
 	model.UpdateChannelStatusById(channelId, common.ChannelStatusAutoDisabled, reason)
-	subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelName, channelId)
-	content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelName, channelId, reason)
-	notifyRootUser(subject, content)
+	// subject := fmt.Sprintf("通道「%s」（#%d）已被禁用", channelName, channelId)
+	// content := fmt.Sprintf("通道「%s」（#%d）已被禁用，原因：%s", channelName, channelId, reason)
+	// notifyRootUser(subject, content)
 }
 
 func EnableChannel(channelId int, channelName string) {
 	model.UpdateChannelStatusById(channelId, common.ChannelStatusEnabled, "")
-	subject := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
-	content := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
-	notifyRootUser(subject, content)
+	// subject := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
+	// content := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
+	// notifyRootUser(subject, content)
 }
 
 func ShouldDisableChannel(channelType int, err *relaymodel.OpenAIErrorWithStatusCode) bool {
