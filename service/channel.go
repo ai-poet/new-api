@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"net/http"
 	"one-api/common"
 	relaymodel "one-api/dto"
