@@ -12,6 +12,7 @@ import (
 	"one-api/model"
 	"one-api/router"
 	"one-api/service"
+	"one-api/setting/operation_setting"
 	"os"
 	"strconv"
 
@@ -33,7 +34,7 @@ var indexPage []byte
 func main() {
 	err := godotenv.Load(".env")
 	if err != nil {
-		common.SysLog("Support for .env file is disabled")
+		common.SysLog("Support for .env file is disabled: " + err.Error())
 	}
 
 	common.LoadEnv()
@@ -51,6 +52,9 @@ func main() {
 	if err != nil {
 		common.FatalLog("failed to initialize database: " + err.Error())
 	}
+
+	model.CheckSetup()
+
 	// Initialize SQL Database
 	err = model.InitLogDB()
 	if err != nil {
@@ -69,10 +73,15 @@ func main() {
 		common.FatalLog("failed to initialize Redis: " + err.Error())
 	}
 
+	// Initialize model settings
+	operation_setting.InitRatioSettings()
 	// Initialize constants
 	constant.InitEnv()
 	// Initialize options
 	model.InitOptionMap()
+
+	service.InitTokenEncoders()
+
 	if common.RedisEnabled {
 		// for compatibility with old versions
 		common.MemoryCacheEnabled = true
@@ -80,9 +89,22 @@ func main() {
 	if common.MemoryCacheEnabled {
 		common.SysLog("memory cache enabled")
 		common.SysError(fmt.Sprintf("sync frequency: %d seconds", common.SyncFrequency))
-		model.InitChannelCache()
-	}
-	if common.MemoryCacheEnabled {
+
+		// Add panic recovery and retry for InitChannelCache
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					common.SysError(fmt.Sprintf("InitChannelCache panic: %v, retrying once", r))
+					// Retry once
+					_, fixErr := model.FixAbility()
+					if fixErr != nil {
+						common.SysError(fmt.Sprintf("InitChannelCache failed: %s", fixErr.Error()))
+					}
+				}
+			}()
+			model.InitChannelCache()
+		}()
+
 		go model.SyncOptions(common.SyncFrequency)
 		go model.SyncChannelCache(common.SyncFrequency)
 	}
@@ -119,14 +141,12 @@ func main() {
 	}
 
 	if os.Getenv("ENABLE_PPROF") == "true" {
-		go func() {
+		gopool.Go(func() {
 			log.Println(http.ListenAndServe("0.0.0.0:8005", nil))
-		}()
+		})
 		go common.Monitor()
 		common.SysLog("pprof enabled")
 	}
-
-	service.InitTokenEncoders()
 
 	// Initialize HTTP server
 	server := gin.New()
@@ -145,6 +165,13 @@ func main() {
 	middleware.SetUpLogger(server)
 	// Initialize session store
 	store := cookie.NewStore([]byte(common.SessionSecret))
+	store.Options(sessions.Options{
+		Path:     "/",
+		MaxAge:   2592000, // 30 days
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteStrictMode,
+	})
 	server.Use(sessions.Sessions("session", store))
 
 	router.SetRouter(server, buildFS, indexPage)

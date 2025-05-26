@@ -4,27 +4,30 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net/http"
 	"one-api/common"
+	constant2 "one-api/constant"
 	"one-api/dto"
 	"one-api/middleware"
 	"one-api/model"
 	"one-api/relay"
 	"one-api/relay/constant"
 	relayconstant "one-api/relay/constant"
+	"one-api/relay/helper"
 	"one-api/service"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 func relayHandler(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode {
 	var err *dto.OpenAIErrorWithStatusCode
 	switch relayMode {
-	case relayconstant.RelayModeImagesGenerations:
-		err = relay.ImageHelper(c, relayMode)
+	case relayconstant.RelayModeImagesGenerations, relayconstant.RelayModeImagesEdits:
+		err = relay.ImageHelper(c)
 	case relayconstant.RelayModeAudioSpeech:
 		fallthrough
 	case relayconstant.RelayModeAudioTranslation:
@@ -33,18 +36,33 @@ func relayHandler(c *gin.Context, relayMode int) *dto.OpenAIErrorWithStatusCode 
 		err = relay.AudioHelper(c)
 	case relayconstant.RelayModeRerank:
 		err = relay.RerankHelper(c, relayMode)
+	case relayconstant.RelayModeEmbeddings:
+		err = relay.EmbeddingHelper(c)
+	case relayconstant.RelayModeResponses:
+		err = relay.ResponsesHelper(c)
 	default:
 		err = relay.TextHelper(c)
 	}
-	return err
-}
 
-func wsHandler(c *gin.Context, ws *websocket.Conn, relayMode int) *dto.OpenAIErrorWithStatusCode {
-	var err *dto.OpenAIErrorWithStatusCode
-	switch relayMode {
-	default:
-		err = relay.TextHelper(c)
+	if constant2.ErrorLogEnabled && err != nil {
+		// 保存错误日志到mysql中
+		userId := c.GetInt("id")
+		tokenName := c.GetString("token_name")
+		modelName := c.GetString("original_model")
+		tokenId := c.GetInt("token_id")
+		userGroup := c.GetString("group")
+		channelId := c.GetInt("channel_id")
+		other := make(map[string]interface{})
+		other["error_type"] = err.Error.Type
+		other["error_code"] = err.Error.Code
+		other["status_code"] = err.StatusCode
+		other["channel_id"] = channelId
+		other["channel_name"] = c.GetString("channel_name")
+		other["channel_type"] = c.GetInt("channel_type")
+
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.Error.Message, tokenId, 0, false, userGroup, other)
 	}
+
 	return err
 }
 
@@ -83,6 +101,7 @@ func Relay(c *gin.Context) {
 
 	if openaiErr != nil {
 		if openaiErr.StatusCode == http.StatusTooManyRequests {
+			common.LogError(c, fmt.Sprintf("origin 429 error: %s", openaiErr.Error.Message))
 			openaiErr.Error.Message = "当前分组上游负载已饱和，请稍后再试"
 		}
 		openaiErr.Error.Message = common.MessageWithRequestId(openaiErr.Error.Message, requestId)
@@ -107,7 +126,7 @@ func WssRelay(c *gin.Context) {
 
 	if err != nil {
 		openaiErr := service.OpenAIErrorWrapper(err, "get_channel_failed", http.StatusInternalServerError)
-		service.WssError(c, ws, openaiErr.Error)
+		helper.WssError(c, ws, openaiErr.Error)
 		return
 	}
 
@@ -149,7 +168,51 @@ func WssRelay(c *gin.Context) {
 			openaiErr.Error.Message = "当前分组上游负载已饱和，请稍后再试"
 		}
 		openaiErr.Error.Message = common.MessageWithRequestId(openaiErr.Error.Message, requestId)
-		service.WssError(c, ws, openaiErr.Error)
+		helper.WssError(c, ws, openaiErr.Error)
+	}
+}
+
+func RelayClaude(c *gin.Context) {
+	//relayMode := constant.Path2RelayMode(c.Request.URL.Path)
+	requestId := c.GetString(common.RequestIdKey)
+	group := c.GetString("group")
+	originalModel := c.GetString("original_model")
+	var claudeErr *dto.ClaudeErrorWithStatusCode
+
+	for i := 0; i <= common.RetryTimes; i++ {
+		channel, err := getChannel(c, group, originalModel, i)
+		if err != nil {
+			common.LogError(c, err.Error())
+			claudeErr = service.ClaudeErrorWrapperLocal(err, "get_channel_failed", http.StatusInternalServerError)
+			break
+		}
+
+		claudeErr = claudeRequest(c, channel)
+
+		if claudeErr == nil {
+			return // 成功处理请求，直接返回
+		}
+
+		openaiErr := service.ClaudeErrorToOpenAIError(claudeErr)
+
+		go processChannelError(c, channel.Id, channel.Type, channel.Name, channel.GetAutoBan(), openaiErr)
+
+		if !shouldRetry(c, openaiErr, common.RetryTimes-i) {
+			break
+		}
+	}
+	useChannel := c.GetStringSlice("use_channel")
+	if len(useChannel) > 1 {
+		retryLogStr := fmt.Sprintf("重试：%s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
+		common.LogInfo(c, retryLogStr)
+	}
+
+	if claudeErr != nil {
+		claudeErr.Error.Message = common.MessageWithRequestId(claudeErr.Error.Message, requestId)
+		c.JSON(claudeErr.StatusCode, gin.H{
+			"type":  "error",
+			"error": claudeErr.Error,
+		})
 	}
 }
 
@@ -165,6 +228,13 @@ func wssRequest(c *gin.Context, ws *websocket.Conn, relayMode int, channel *mode
 	requestBody, _ := common.GetRequestBody(c)
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 	return relay.WssHelper(c, ws)
+}
+
+func claudeRequest(c *gin.Context, channel *model.Channel) *dto.ClaudeErrorWithStatusCode {
+	addUsedChannel(c, channel.Id)
+	requestBody, _ := common.GetRequestBody(c)
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+	return relay.ClaudeHelper(c)
 }
 
 func addUsedChannel(c *gin.Context, channelId int) {

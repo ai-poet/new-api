@@ -1,4 +1,4 @@
-FROM oven/bun:latest as builder
+FROM oven/bun:latest AS builder
 
 WORKDIR /build
 COPY web/package.json .
@@ -7,15 +7,17 @@ COPY ./web .
 COPY ./VERSION .
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
 
-FROM golang AS builder2
+FROM golang:alpine AS builder2
 
 ENV GO111MODULE=on \
-    CGO_ENABLED=1 \
+    CGO_ENABLED=0 \
     GOOS=linux
 
 WORKDIR /build
+
 ADD go.mod go.sum ./
 RUN go mod download
+
 COPY . .
 COPY --from=builder /build/dist ./web/dist
 RUN CGO_ENABLED=1 go build -tags sqlite_foreign_keys \

@@ -1,20 +1,10 @@
 package dto
 
-type TextResponseWithError struct {
-	Id      string                        `json:"id"`
-	Object  string                        `json:"object"`
-	Created int64                         `json:"created"`
-	Choices []OpenAITextResponseChoice    `json:"choices"`
-	Data    []OpenAIEmbeddingResponseItem `json:"data"`
-	Model   string                        `json:"model"`
-	Usage   `json:"usage"`
-	Error   OpenAIError `json:"error"`
-}
+import "encoding/json"
 
 type SimpleResponse struct {
-	Usage   `json:"usage"`
-	Error   OpenAIError                `json:"error"`
-	Choices []OpenAITextResponseChoice `json:"choices"`
+	Usage `json:"usage"`
+	Error *OpenAIError `json:"error"`
 }
 
 type TextResponse struct {
@@ -38,6 +28,7 @@ type OpenAITextResponse struct {
 	Object  string                     `json:"object"`
 	Created int64                      `json:"created"`
 	Choices []OpenAITextResponseChoice `json:"choices"`
+	Error   *OpenAIError               `json:"error,omitempty"`
 	Usage   `json:"usage"`
 }
 
@@ -62,9 +53,11 @@ type ChatCompletionsStreamResponseChoice struct {
 }
 
 type ChatCompletionsStreamResponseChoiceDelta struct {
-	Content   *string    `json:"content,omitempty"`
-	Role      string     `json:"role,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Content          *string            `json:"content,omitempty"`
+	ReasoningContent *string            `json:"reasoning_content,omitempty"`
+	Reasoning        *string            `json:"reasoning,omitempty"`
+	Role             string             `json:"role,omitempty"`
+	ToolCalls        []ToolCallResponse `json:"tool_calls,omitempty"`
 }
 
 func (c *ChatCompletionsStreamResponseChoiceDelta) SetContentString(s string) {
@@ -78,24 +71,39 @@ func (c *ChatCompletionsStreamResponseChoiceDelta) GetContentString() string {
 	return *c.Content
 }
 
-type ToolCall struct {
-	// Index is not nil only in chat completion chunk object
-	Index    *int         `json:"index,omitempty"`
-	ID       string       `json:"id"`
-	Type     any          `json:"type"`
-	Function FunctionCall `json:"function"`
+func (c *ChatCompletionsStreamResponseChoiceDelta) GetReasoningContent() string {
+	if c.ReasoningContent == nil && c.Reasoning == nil {
+		return ""
+	}
+	if c.ReasoningContent != nil {
+		return *c.ReasoningContent
+	}
+	return *c.Reasoning
 }
 
-func (c *ToolCall) SetIndex(i int) {
+func (c *ChatCompletionsStreamResponseChoiceDelta) SetReasoningContent(s string) {
+	c.ReasoningContent = &s
+	c.Reasoning = &s
+}
+
+type ToolCallResponse struct {
+	// Index is not nil only in chat completion chunk object
+	Index    *int             `json:"index,omitempty"`
+	ID       string           `json:"id,omitempty"`
+	Type     any              `json:"type"`
+	Function FunctionResponse `json:"function"`
+}
+
+func (c *ToolCallResponse) SetIndex(i int) {
 	c.Index = &i
 }
 
-type FunctionCall struct {
+type FunctionResponse struct {
 	Description string `json:"description,omitempty"`
 	Name        string `json:"name,omitempty"`
 	// call function with arguments in JSON format
 	Parameters any    `json:"parameters,omitempty"` // request
-	Arguments  string `json:"arguments,omitempty"`
+	Arguments  string `json:"arguments"`            // response
 }
 
 type ChatCompletionsStreamResponse struct {
@@ -106,6 +114,34 @@ type ChatCompletionsStreamResponse struct {
 	SystemFingerprint *string                               `json:"system_fingerprint"`
 	Choices           []ChatCompletionsStreamResponseChoice `json:"choices"`
 	Usage             *Usage                                `json:"usage"`
+}
+
+func (c *ChatCompletionsStreamResponse) IsToolCall() bool {
+	if len(c.Choices) == 0 {
+		return false
+	}
+	return len(c.Choices[0].Delta.ToolCalls) > 0
+}
+
+func (c *ChatCompletionsStreamResponse) GetFirstToolCall() *ToolCallResponse {
+	if c.IsToolCall() {
+		return &c.Choices[0].Delta.ToolCalls[0]
+	}
+	return nil
+}
+
+func (c *ChatCompletionsStreamResponse) Copy() *ChatCompletionsStreamResponse {
+	choices := make([]ChatCompletionsStreamResponseChoice, len(c.Choices))
+	copy(choices, c.Choices)
+	return &ChatCompletionsStreamResponse{
+		Id:                c.Id,
+		Object:            c.Object,
+		Created:           c.Created,
+		Model:             c.Model,
+		SystemFingerprint: c.SystemFingerprint,
+		Choices:           choices,
+		Usage:             c.Usage,
+	}
 }
 
 func (c *ChatCompletionsStreamResponse) GetSystemFingerprint() string {
@@ -132,9 +168,93 @@ type CompletionsStreamResponse struct {
 }
 
 type Usage struct {
-	PromptTokens           int                `json:"prompt_tokens"`
-	CompletionTokens       int                `json:"completion_tokens"`
-	TotalTokens            int                `json:"total_tokens"`
+	PromptTokens         int `json:"prompt_tokens"`
+	CompletionTokens     int `json:"completion_tokens"`
+	TotalTokens          int `json:"total_tokens"`
+	PromptCacheHitTokens int `json:"prompt_cache_hit_tokens,omitempty"`
+
 	PromptTokensDetails    InputTokenDetails  `json:"prompt_tokens_details"`
 	CompletionTokenDetails OutputTokenDetails `json:"completion_tokens_details"`
+	InputTokens            int                `json:"input_tokens"`
+	OutputTokens           int                `json:"output_tokens"`
+	InputTokensDetails     *InputTokenDetails `json:"input_tokens_details"`
+}
+
+type InputTokenDetails struct {
+	CachedTokens         int `json:"cached_tokens"`
+	CachedCreationTokens int `json:"-"`
+	TextTokens           int `json:"text_tokens"`
+	AudioTokens          int `json:"audio_tokens"`
+	ImageTokens          int `json:"image_tokens"`
+}
+
+type OutputTokenDetails struct {
+	TextTokens      int `json:"text_tokens"`
+	AudioTokens     int `json:"audio_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
+type OpenAIResponsesResponse struct {
+	ID                 string               `json:"id"`
+	Object             string               `json:"object"`
+	CreatedAt          int                  `json:"created_at"`
+	Status             string               `json:"status"`
+	Error              *OpenAIError         `json:"error,omitempty"`
+	IncompleteDetails  *IncompleteDetails   `json:"incomplete_details,omitempty"`
+	Instructions       string               `json:"instructions"`
+	MaxOutputTokens    int                  `json:"max_output_tokens"`
+	Model              string               `json:"model"`
+	Output             []ResponsesOutput    `json:"output"`
+	ParallelToolCalls  bool                 `json:"parallel_tool_calls"`
+	PreviousResponseID string               `json:"previous_response_id"`
+	Reasoning          *Reasoning           `json:"reasoning"`
+	Store              bool                 `json:"store"`
+	Temperature        float64              `json:"temperature"`
+	ToolChoice         string               `json:"tool_choice"`
+	Tools              []ResponsesToolsCall `json:"tools"`
+	TopP               float64              `json:"top_p"`
+	Truncation         string               `json:"truncation"`
+	Usage              *Usage               `json:"usage"`
+	User               json.RawMessage      `json:"user"`
+	Metadata           json.RawMessage      `json:"metadata"`
+}
+
+type IncompleteDetails struct {
+	Reasoning string `json:"reasoning"`
+}
+
+type ResponsesOutput struct {
+	Type    string                   `json:"type"`
+	ID      string                   `json:"id"`
+	Status  string                   `json:"status"`
+	Role    string                   `json:"role"`
+	Content []ResponsesOutputContent `json:"content"`
+}
+
+type ResponsesOutputContent struct {
+	Type        string        `json:"type"`
+	Text        string        `json:"text"`
+	Annotations []interface{} `json:"annotations"`
+}
+
+const (
+	BuildInToolWebSearchPreview = "web_search_preview"
+	BuildInToolFileSearch       = "file_search"
+)
+
+const (
+	BuildInCallWebSearchCall = "web_search_call"
+)
+
+const (
+	ResponsesOutputTypeItemAdded = "response.output_item.added"
+	ResponsesOutputTypeItemDone  = "response.output_item.done"
+)
+
+// ResponsesStreamResponse 用于处理 /v1/responses 流式响应
+type ResponsesStreamResponse struct {
+	Type     string                   `json:"type"`
+	Response *OpenAIResponsesResponse `json:"response,omitempty"`
+	Delta    string                   `json:"delta,omitempty"`
+	Item     *ResponsesOutput         `json:"item,omitempty"`
 }

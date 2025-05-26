@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
 )
@@ -18,7 +20,7 @@ type Log struct {
 	CreatedAt        int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type"`
 	Type             int    `json:"type" gorm:"index:idx_created_at_type"`
 	Content          string `json:"content"`
-	Username         string `json:"username" gorm:"index:index_username_model_name,priority:2;default:''"`
+	Username         string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
 	TokenName        string `json:"token_name" gorm:"index;default:''"`
 	ModelName        string `json:"model_name" gorm:"index;index:index_username_model_name,priority:1;default:''"`
 	Quota            int    `json:"quota" gorm:"default:0"`
@@ -39,6 +41,7 @@ const (
 	LogTypeConsume
 	LogTypeManage
 	LogTypeSystem
+	LogTypeError
 )
 
 func formatUserLogs(logs []*Log) {
@@ -87,14 +90,43 @@ func RecordLog(userId int, logType int, content string) {
 	}
 }
 
-func RecordConsumeLog(ctx context.Context, userId int, channelId int, promptTokens int, completionTokens int,
+func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
+	isStream bool, group string, other map[string]interface{}) {
+	common.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, content))
+	username := c.GetString("username")
+	otherStr := common.MapToJsonStr(other)
+	log := &Log{
+		UserId:           userId,
+		Username:         username,
+		CreatedAt:        common.GetTimestamp(),
+		Type:             LogTypeError,
+		Content:          content,
+		PromptTokens:     0,
+		CompletionTokens: 0,
+		TokenName:        tokenName,
+		ModelName:        modelName,
+		Quota:            0,
+		ChannelId:        channelId,
+		TokenId:          tokenId,
+		UseTime:          useTimeSeconds,
+		IsStream:         isStream,
+		Group:            group,
+		Other:            otherStr,
+	}
+	err := LOG_DB.Create(log).Error
+	if err != nil {
+		common.LogError(c, "failed to record log: "+err.Error())
+	}
+}
+
+func RecordConsumeLog(c *gin.Context, userId int, channelId int, promptTokens int, completionTokens int,
 	modelName string, tokenName string, quota int, content string, tokenId int, userQuota int, useTimeSeconds int,
 	isStream bool, group string, other map[string]interface{}) {
-	common.LogInfo(ctx, fmt.Sprintf("record consume log: userId=%d, 用户调用前余额=%d, channelId=%d, promptTokens=%d, completionTokens=%d, modelName=%s, tokenName=%s, quota=%d, content=%s", userId, userQuota, channelId, promptTokens, completionTokens, modelName, tokenName, quota, content))
+	common.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, 用户调用前余额=%d, channelId=%d, promptTokens=%d, completionTokens=%d, modelName=%s, tokenName=%s, quota=%d, content=%s", userId, userQuota, channelId, promptTokens, completionTokens, modelName, tokenName, quota, content))
 	if !common.LogConsumeEnabled {
 		return
 	}
-	username, _ := GetUsernameById(userId, false)
+	username := c.GetString("username")
 	otherStr := common.MapToJsonStr(other)
 	log := &Log{
 		UserId:           userId,
@@ -116,7 +148,7 @@ func RecordConsumeLog(ctx context.Context, userId int, channelId int, promptToke
 	}
 	err := LOG_DB.Create(log).Error
 	if err != nil {
-		common.LogError(ctx, "failed to record log: "+err.Error())
+		common.LogError(c, "failed to record log: "+err.Error())
 	}
 	if common.DataExportEnabled {
 		gopool.Go(func() {
@@ -132,9 +164,6 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	} else {
 		tx = LOG_DB.Where("logs.type = ?", logType)
 	}
-
-	tx = tx.Joins("LEFT JOIN channels ON logs.channel_id = channels.id")
-	tx = tx.Select("logs.*, channels.name as channel_name")
 
 	if modelName != "" {
 		tx = tx.Where("logs.model_name like ?", modelName)
@@ -165,6 +194,30 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if err != nil {
 		return nil, 0, err
 	}
+
+	channelIds := make([]int, 0)
+	channelMap := make(map[int]string)
+	for _, log := range logs {
+		if log.ChannelId != 0 {
+			channelIds = append(channelIds, log.ChannelId)
+		}
+	}
+	if len(channelIds) > 0 {
+		var channels []struct {
+			Id   int    `gorm:"column:id"`
+			Name string `gorm:"column:name"`
+		}
+		if err = DB.Table("channels").Select("id, name").Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+			return logs, total, err
+		}
+		for _, channel := range channels {
+			channelMap[channel.Id] = channel.Name
+		}
+		for i := range logs {
+			logs[i].ChannelName = channelMap[logs[i].ChannelId]
+		}
+	}
+
 	return logs, total, err
 }
 
@@ -175,9 +228,6 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	} else {
 		tx = LOG_DB.Where("logs.user_id = ? and logs.type = ?", userId, logType)
 	}
-
-	tx = tx.Joins("LEFT JOIN channels ON logs.channel_id = channels.id")
-	tx = tx.Select("logs.*, channels.name as channel_name")
 
 	if modelName != "" {
 		tx = tx.Where("logs.model_name like ?", modelName)
@@ -199,6 +249,10 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 		return nil, 0, err
 	}
 	err = tx.Order("logs.id desc").Limit(num).Offset(startIdx).Find(&logs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
 	formatUserLogs(logs)
 	return logs, total, err
 }
@@ -287,7 +341,25 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	return token
 }
 
-func DeleteOldLog(targetTimestamp int64) (int64, error) {
-	result := LOG_DB.Where("created_at < ?", targetTimestamp).Delete(&Log{})
-	return result.RowsAffected, result.Error
+func DeleteOldLog(ctx context.Context, targetTimestamp int64, limit int) (int64, error) {
+	var total int64 = 0
+
+	for {
+		if nil != ctx.Err() {
+			return total, ctx.Err()
+		}
+
+		result := LOG_DB.Where("created_at < ?", targetTimestamp).Limit(limit).Delete(&Log{})
+		if nil != result.Error {
+			return total, result.Error
+		}
+
+		total += result.RowsAffected
+
+		if result.RowsAffected < int64(limit) {
+			break
+		}
+	}
+
+	return total, nil
 }
